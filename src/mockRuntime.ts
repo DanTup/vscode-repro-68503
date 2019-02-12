@@ -89,6 +89,8 @@ export class MockRuntime extends EventEmitter {
 				name: `${name}(${i})`,
 				file: this._sourceFile,
 				line: this._currentLine
+				line: this._currentLine,
+				col: i + 2,
 			});
 		}
 		return {

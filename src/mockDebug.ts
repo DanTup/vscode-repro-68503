@@ -56,13 +56,13 @@ export class MockDebugSession extends LoggingDebugSession {
 
 		// setup event handlers
 		this._runtime.on('stopOnEntry', () => {
-			this.sendEvent(new StoppedEvent('entry', MockDebugSession.THREAD_ID));
+			this._runtime.continue();
 		});
 		this._runtime.on('stopOnStep', () => {
 			this.sendEvent(new StoppedEvent('step', MockDebugSession.THREAD_ID));
 		});
 		this._runtime.on('stopOnBreakpoint', () => {
-			this.sendEvent(new StoppedEvent('breakpoint', MockDebugSession.THREAD_ID));
+			this.sendEvent(new StoppedEvent('exception', MockDebugSession.THREAD_ID, 'A fake exception occurred'));
 		});
 		this._runtime.on('stopOnException', () => {
 			this.sendEvent(new StoppedEvent('exception', MockDebugSession.THREAD_ID));
@@ -156,6 +156,17 @@ export class MockDebugSession extends LoggingDebugSession {
 		this.sendResponse(response);
 	}
 
+	protected sourceRequest(response: DebugProtocol.SourceResponse, args: DebugProtocol.SourceArguments): void {
+		// Always return invalid for the first frame.
+		if (args.source && args.source.sourceReference !== 1) {
+			response.body = { content: "this is my valid source" };
+		} else {
+			response.success = false;
+			response.message = "<source not available>";
+		}
+		this.sendResponse(response);
+	}
+
 	protected threadsRequest(response: DebugProtocol.ThreadsResponse): void {
 
 		// runtime supports now threads so just return a default thread.
@@ -176,7 +187,18 @@ export class MockDebugSession extends LoggingDebugSession {
 		const stk = this._runtime.stack(startFrame, endFrame);
 
 		response.body = {
-			stackFrames: stk.frames.map(f => new StackFrame(f.index, f.name, this.createSource(f.file), this.convertDebuggerLineToClient(f.line))),
+			stackFrames: stk.frames.map((f, i) => {
+				const source = this.createSource(f.file);
+				// For the top stack frame, we'll set a deemphasized source reference
+				// so that VS Code will jump down to the second stack frame. We expect the exception
+				// popup to appear, but it does not, unless we move away from the second frame
+				// and then back - then it appears.
+				if (i === 0) {
+					source.sourceReference = i + 1;
+					(source as DebugProtocol.Source).presentationHint = "deemphasize";
+				}
+				return new StackFrame(f.index, f.name, source, this.convertDebuggerLineToClient(f.line), f.col)
+			}),
 			totalFrames: stk.count
 		};
 		this.sendResponse(response);
